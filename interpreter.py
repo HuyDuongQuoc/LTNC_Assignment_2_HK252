@@ -84,15 +84,37 @@ def _to_term(v: Value) -> Term:
         return TString(v.value)
     if isinstance(v, VClosure):
         return TLam(v.var, v.body)
-    raise TypeError(f"Unknown value type: {type(v).__name__}")
-
+    raise TypeError_(f"Unknown value type: {type(v).__name__}")
 
 def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
     steps = 0
     
     def eval_term(t: Term, env: dict[int, Thunk]) -> Value:
-        # TODO
-        raise TypeError(f"Unknown term type: {type(t).__name__}")
+        if isinstance(t, TInt):
+            return VInt(t.value)
+        if isinstance(t, TString):
+            return VString(t.value)
+        if isinstance(t, TBool):
+            return VBool(t.value)
+        if isinstance(t, TLam):
+            return VClosure(t.var, t.body, env.copy())
+        if isinstance(t, TVar):
+            if t.value not in env:
+                raise ScopeError(f"Unbound variable: v{t.value}")
+            return force(env[t.value])
+        
+        raise TypeError_(f"Unknown term type: {type(t).__name__}")
+
+    def force(th: Thunk) -> Value:
+        if th.kind == "value":
+            if th.value is None:
+                raise InterpreterError("Malformed value thunk")
+            return th.value
+        if th.kind == "thunk":
+            if th.term is None or th.env is None:
+                raise InterpreterError("Malformed delayed thunk")
+            return eval_term(th.term, th.env)
+        raise InterpreterError(f"Unknown thunk kind: {th.kind}")
 
     result = eval_term(term, {})
     return _to_term(result), steps
