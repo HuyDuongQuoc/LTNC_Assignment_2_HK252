@@ -120,7 +120,7 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             raise TypeError_(f"Expected string, got {type(v).__name__}")
         return v.value 
     
-    def divmod(a:int, b:int)->tuple[int,int]:
+    def div_mod(a:int, b:int)->tuple[int,int]:
         if b==0:
             raise ArithmeticError_("Division by zero")
         q = abs(a) // abs(b)
@@ -178,10 +178,10 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             if t.op == "*":
                 return VInt(is_int(l)*is_int(r))
             if t.op == "/":
-                q, r = divmod(is_int(l),is_int(r))
+                q, r = div_mod(is_int(l),is_int(r))
                 return VInt(q)
             if t.op == "%":
-                q, r = divmod(is_int(l),is_int(r))
+                q, r = div_mod(is_int(l),is_int(r))
                 return VInt(r)
             if t.op == "<":
                 return VBool(is_int(l)<is_int(r))
@@ -214,7 +214,13 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
                 return VString(s[n:])
             
             raise UnknownBinOp(t.op)
-                
+        
+        if isinstance(t,TIf):
+            cond = eval_term(t.cond,env)
+            if is_bool(cond):
+                return eval_term(t.true_branch,env)
+            return eval_term(t.false_branch,env)
+         
         raise TypeError_(f"Unknown term type: {type(t).__name__}")
 
     def force(th: Thunk) -> Value:
@@ -226,6 +232,14 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             if th.term is None or th.env is None:
                 raise InterpreterError("Malformed delayed thunk")
             return eval_term(th.term, th.env)
+        if th.kind == "lazy":
+            if th.value is not None:
+                return th.value
+            if th.term is None or th.env is None:
+                raise InterpreterError("Malformed lazy thunk")
+            value = eval_term(th.term, th.env)
+            th.value = value
+            return value
         raise InterpreterError(f"Unknown thunk kind: {th.kind}")
 
     result = eval_term(term, {})
