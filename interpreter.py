@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ifp_ast import TBinOp, TBool, TIf, TInt, TLam, TString, TUnOp, TVar, Term
+from ifp_ast import CHARS, CHARS_DECODED, TBinOp, TBool, TIf, TInt, TLam, TString, TUnOp, TVar, Term
 from printer import encode_string, to_base94
 
 
@@ -89,6 +89,46 @@ def _to_term(v: Value) -> Term:
 def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
     steps = 0
     
+    decode_map = {src: dst for src,dst in zip(CHARS,CHARS_DECODED)}
+    
+    def decode_base94(body: str)->int:
+        res = 0
+        for i in body:
+            res = res*94+(ord(i)-33)
+        return res
+    
+    def decode_string_body(body: str)->str:
+        res: list[str] = []
+        for i in body:
+            if i not in decode_map:
+                raise TypeError_(f"Unexpected encoded character: {i!r}")
+            res.append(decode_map[i])
+        return "".join(res)
+    
+    def is_int(v: Value) -> int:
+        if not isinstance(v, VInt):
+            raise TypeError_(f"Expected integer, got {type(v).__name__}")
+        return v.value
+
+    def is_bool(v: Value) -> bool:
+        if not isinstance(v, VBool):
+            raise TypeError_(f"Expected boolean, got {type(v).__name__}")
+        return v.value
+
+    def is_string(v: Value) -> str:
+        if not isinstance(v, VString):
+            raise TypeError_(f"Expected string, got {type(v).__name__}")
+        return v.value 
+    
+    def divmod(a:int, b:int)->tuple[int,int]:
+        if b==0:
+            raise ArithmeticError_("Division by zero")
+        q = abs(a) // abs(b)
+        if (a<0)^(b<0):
+            q = -q
+        r = a-q*b
+        return q,r
+    
     def eval_term(t: Term, env: dict[int, Thunk]) -> Value:
         if isinstance(t, TInt):
             return VInt(t.value)
@@ -102,7 +142,79 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             if t.value not in env:
                 raise ScopeError(f"Unbound variable: v{t.value}")
             return force(env[t.value])
-        
+        if isinstance(t,TUnOp):
+            v = eval_term(t.term, env)
+            
+            if t.op == "-":
+                return VInt(-is_int(v))
+            if t.op == "!":
+                return VBool(not is_bool(v))
+            if t.op == "#":
+                s = is_string(v)
+                encoded = encode_string(s)
+                return VInt(decode_base94(encoded))
+            if t.op == "$":
+                n = is_int(v)
+                if n<0:
+                    raise TypeError_("U$ expects a non-negative integer")
+                body = to_base94(n)
+                if body is None:
+                    raise TypeError_("U$ expects a non-negative integer")
+                return VString(decode_string_body(body))
+            
+            raise UnknownUnOp(t.op)
+        if isinstance(t, TBinOp):
+            if t.op == "$":
+                # for lambda function
+                pass
+            
+            l = eval_term(t.left, env)
+            r = eval_term(t.right,env)
+            
+            if t.op == "+":
+                return VInt(is_int(l)+is_int(r))
+            if t.op == "-":
+                return VInt(is_int(l)-is_int(r))
+            if t.op == "*":
+                return VInt(is_int(l)*is_int(r))
+            if t.op == "/":
+                q, r = divmod(is_int(l),is_int(r))
+                return VInt(q)
+            if t.op == "%":
+                q, r = divmod(is_int(l),is_int(r))
+                return VInt(r)
+            if t.op == "<":
+                return VBool(is_int(l)<is_int(r))
+            if t.op == ">":
+                return VBool(is_int(l)>is_int(r))
+            if t.op == "=":
+                if type(l) is not type(r):
+                    return VBool(False)
+                if isinstance(l, VInt):
+                    return VBool(l.value == r.value)
+                if isinstance(l, VBool):
+                    return VBool(l.value == r.value)
+                if isinstance(l, VString):
+                    return VBool(l.value == r.value)
+                raise TypeError_("Equality is not supported for closures")
+
+            if t.op == "|":
+                return VBool(is_bool(l) or is_bool(r))
+            if t.op == "&":
+                return VBool(is_bool(l) and is_bool(r))
+            if t.op == ".":
+                return VString(is_string(l) + is_string(r))
+            if t.op == "T":
+                n = is_int(l)
+                s = is_string(r)
+                return VString(s[:n])
+            if t.op == "D":
+                n = is_int(l)
+                s = is_string(r)
+                return VString(s[n:])
+            
+            raise UnknownBinOp(t.op)
+                
         raise TypeError_(f"Unknown term type: {type(t).__name__}")
 
     def force(th: Thunk) -> Value:
