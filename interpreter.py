@@ -165,9 +165,18 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             raise UnknownUnOp(t.op)
         if isinstance(t, TBinOp):
             if t.op == "$":
-                # for lambda function
-                pass
-            
+                func = eval_term(t.left, env)
+                if not isinstance(func, VClosure):
+                    raise TypeError_("Function application expects a lambda on the left")
+                steps += 1
+                if check_max and steps>MAX_STEPS:
+                    raise BetaReductionLimit(f"Exceeded beta-reduction limit ({MAX_STEPS})")
+
+                thunk_arg = Thunk(kind = "thunk", term=t.right, env = env.copy())
+                new_env = func.env.copy()
+                new_env[func.var] = thunk_arg
+                return eval_term(func.body, new_env)
+                    
             l = eval_term(t.left, env)
             r = eval_term(t.right,env)
             
