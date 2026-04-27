@@ -130,6 +130,8 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
         return q,r
     
     def eval_term(t: Term, env: dict[int, Thunk]) -> Value:
+        nonlocal steps
+        
         if isinstance(t, TInt):
             return VInt(t.value)
         if isinstance(t, TString):
