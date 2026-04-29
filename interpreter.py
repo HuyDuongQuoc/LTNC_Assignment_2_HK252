@@ -253,5 +253,69 @@ def interpret(check_max: bool, term: Term) -> tuple[Term, int]:
             return value
         raise InterpreterError(f"Unknown thunk kind: {th.kind}")
 
+    def thunk_to_term(th: Thunk) -> Term:
+        if th.kind == "value":
+            if th.value is None:
+                raise InterpreterError("Malformed value thunk")
+            return value_to_term(th.value)
+
+        if th.kind == "thunk":
+            if th.term is None or th.env is None:
+                raise InterpreterError("Malformed delayed thunk")
+            return close_term(th.term, th.env)
+
+        if th.kind == "lazy":
+            if th.value is not None:
+                return value_to_term(th.value)
+            if th.term is None or th.env is None:
+                raise InterpreterError("Malformed lazy thunk")
+            return close_term(th.term, th.env)
+
+        raise InterpreterError(f"Unknown thunk kind: {th.kind}")
+
+    def value_to_term(v: Value) -> Term:
+        if isinstance(v, VInt):
+            return TInt(v.value)
+
+        if isinstance(v, VBool):
+            return TBool(v.value)
+
+        if isinstance(v, VString):
+            return TString(v.value)
+
+        if isinstance(v, VClosure):
+            new_env = v.env.copy()
+            new_env.pop(v.var, None)
+            return TLam(v.var, close_term(v.body, new_env))
+        raise TypeError_(f"Unknown value type: {type(v).__name__}")
+
+
+    def close_term(t: Term, env: dict[int, Thunk]) -> Term:
+        if isinstance(t, TInt) or isinstance(t, TString) or isinstance(t, TBool):
+            return t
+        if isinstance(t, TVar):
+            if t.value in env:
+                return thunk_to_term(env[t.value])
+            return t
+        if isinstance(t, TLam):
+            new_env = env.copy()
+            new_env.pop(t.var, None)
+            return TLam(t.var, close_term(t.body, new_env))
+        if isinstance(t, TUnOp):
+            return TUnOp(t.op, close_term(t.term, env))
+        if isinstance(t, TBinOp):
+            return TBinOp(
+                close_term(t.left, env),
+                t.op,
+                close_term(t.right, env),
+            )
+        if isinstance(t, TIf):
+            return TIf(
+                close_term(t.cond, env),
+                close_term(t.true_branch, env),
+                close_term(t.false_branch, env),
+            )
+        raise TypeError_(f"Unknown term type: {type(t).__name__}")
+
     result = eval_term(term, {})
-    return _to_term(result), steps
+    return value_to_term(result), steps
